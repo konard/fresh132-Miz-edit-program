@@ -1,0 +1,115 @@
+/* Miz Editor Styles */
+
+body {
+    background-color: #f8f9fa;
+    min-height: 100vh;
+}
+
+.container {
+    max-width: 900px;
+}
+
+/* Drop Zone Styling */
+.drop-zone {
+    background-color: #fff;
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.drop-zone:hover {
+    background-color: #f0f7ff;
+    border-color: #0d6efd !important;
+}
+
+.drop-zone.drag-over {
+    background-color: #e7f1ff;
+    border-color: #0d6efd !important;
+    border-style: solid !important;
+}
+
+.border-dashed {
+    border-style: dashed !important;
+}
+
+/* Card Styling */
+.card {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.card-header {
+    background-color: #fff;
+    border-bottom: 1px solid #e9ecef;
+}
+
+/* Output Preview */
+#output-preview {
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 0.9rem;
+    background-color: #f8f9fa;
+    resize: vertical;
+}
+
+/* Progress Bar */
+.progress {
+    height: 20px;
+}
+
+/* Process Button */
+#process-btn {
+    min-width: 200px;
+}
+
+#process-btn:disabled {
+    cursor: not-allowed;
+}
+
+/* Header Styling */
+header h1 {
+    color: #343a40;
+    font-weight: 600;
+}
+
+/* Footer Styling */
+footer {
+    font-size: 0.875rem;
+}
+
+/* Manual Categories */
+#manual-categories {
+    background-color: #f8f9fa;
+    padding: 1rem;
+    border-radius: 0.375rem;
+}
+
+/* File Info Alert */
+#file-info .alert {
+    margin-bottom: 0;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+    .container {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
+    .drop-zone {
+        padding: 2rem !important;
+    }
+}
+
+/* Animation for Results */
+#results-section {
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
