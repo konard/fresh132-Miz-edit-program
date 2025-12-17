@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Miz Editor - DCS World Mission Text Extractor</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="container py-4">
+        <header class="mb-4">
+            <h1 class="text-center">Miz Editor</h1>
+            <p class="text-center text-muted">Extract localizable text from DCS World .miz files</p>
+        </header>
+
+        <!-- File Upload Section -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">1. Upload .miz File</h5>
+            </div>
+            <div class="card-body">
+                <div id="drop-zone" class="drop-zone text-center p-5 border border-2 border-dashed rounded">
+                    <i class="bi bi-cloud-upload fs-1 text-muted"></i>
+                    <p class="mb-2">Drag and drop a .miz file here</p>
+                    <p class="text-muted mb-3">or</p>
+                    <input type="file" id="file-input" accept=".miz" class="d-none">
+                    <button id="browse-btn" class="btn btn-primary">Browse Files</button>
+                </div>
+                <div id="file-info" class="mt-3 d-none">
+                    <div class="alert alert-success">
+                        <strong>File loaded:</strong> <span id="file-name"></span>
+                        <span class="float-end">
+                            <button id="clear-file-btn" class="btn btn-sm btn-outline-danger">Clear</button>
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mode Selection Section -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">2. Select Extraction Mode</h5>
+            </div>
+            <div class="card-body">
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="radio" name="mode" id="mode-auto" value="auto" checked>
+                    <label class="form-check-label" for="mode-auto">
+                        <strong>Automatic Mode</strong> - Extract all localizable text automatically
+                    </label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="mode" id="mode-manual" value="manual">
+                    <label class="form-check-label" for="mode-manual">
+                        <strong>Manual Mode</strong> - Select specific categories to extract
+                    </label>
+                </div>
+
+                <!-- Manual Mode Categories -->
+                <div id="manual-categories" class="mt-3 ms-4 d-none">
+                    <h6>Select categories to extract:</h6>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input category-checkbox" type="checkbox" id="cat-briefings" value="briefings" checked>
+                                <label class="form-check-label" for="cat-briefings">Mission Briefings</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input category-checkbox" type="checkbox" id="cat-tasks" value="tasks" checked>
+                                <label class="form-check-label" for="cat-tasks">Task Descriptions</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input category-checkbox" type="checkbox" id="cat-triggers" value="triggers" checked>
+                                <label class="form-check-label" for="cat-triggers">Trigger Messages</label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input category-checkbox" type="checkbox" id="cat-units" value="units" checked>
+                                <label class="form-check-label" for="cat-units">Unit Names</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input category-checkbox" type="checkbox" id="cat-waypoints" value="waypoints" checked>
+                                <label class="form-check-label" for="cat-waypoints">Waypoints</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input category-checkbox" type="checkbox" id="cat-radio" value="radio" checked>
+                                <label class="form-check-label" for="cat-radio">Radio Messages</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Locale Selection -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">3. Locale Preference</h5>
+            </div>
+            <div class="card-body">
+                <div class="row align-items-center">
+                    <div class="col-md-6">
+                        <select id="locale-select" class="form-select">
+                            <option value="DEFAULT" selected>DEFAULT (Primary)</option>
+                            <option value="RU">Russian (RU)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <small class="text-muted">If selected locale is unavailable, DEFAULT will be used</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Output Format -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">4. Output Format</h5>
+            </div>
+            <div class="card-body">
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="output-format" id="format-txt" value="txt" checked>
+                    <label class="form-check-label" for="format-txt">Plain Text (.txt)</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="output-format" id="format-json" value="json">
+                    <label class="form-check-label" for="format-json">JSON (.json)</label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Process Button -->
+        <div class="text-center mb-4">
+            <button id="process-btn" class="btn btn-success btn-lg" disabled>
+                <span id="process-text">Process File</span>
+                <span id="process-spinner" class="spinner-border spinner-border-sm d-none" role="status"></span>
+            </button>
+        </div>
+
+        <!-- Progress Indicator -->
+        <div id="progress-section" class="card mb-4 d-none">
+            <div class="card-body">
+                <div class="progress">
+                    <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+                </div>
+                <p id="progress-text" class="text-center mt-2 mb-0">Processing...</p>
+            </div>
+        </div>
+
+        <!-- Results Section -->
+        <div id="results-section" class="card mb-4 d-none">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Extracted Text Preview</h5>
+                <div>
+                    <span id="extraction-stats" class="badge bg-info me-2"></span>
+                    <button id="download-btn" class="btn btn-primary btn-sm">
+                        Download
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <textarea id="output-preview" class="form-control" rows="15" readonly></textarea>
+            </div>
+        </div>
+
+        <!-- Error Section -->
+        <div id="error-section" class="alert alert-danger d-none" role="alert">
+            <strong>Error:</strong> <span id="error-message"></span>
+        </div>
+
+        <footer class="text-center text-muted mt-4">
+            <p>Miz Editor v1.0.0 | For DCS World mission files</p>
+        </footer>
+    </div>
+
+    <!-- JSZip Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <!-- Main Application Script -->
+    <script src="src/lua-parser.js"></script>
+    <script src="src/miz-parser.js"></script>
+    <script src="src/app.js"></script>
+</body>
+</html>
