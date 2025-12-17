@@ -131,6 +131,11 @@ const MizParser = {
                 totalStrings: 0,
                 uniqueStrings: 0,
                 byCategory: {}
+            },
+            validation: {
+                isComplete: false,
+                errors: [],
+                warnings: []
             }
         };
 
@@ -193,6 +198,37 @@ const MizParser = {
         }
         result.stats.totalStrings = allStrings.length;
         result.stats.uniqueStrings = new Set(allStrings.map(s => s.text)).size;
+
+        // Validation per issue #7: Check for required categories
+        const requiredCategories = ['briefings', 'triggers', 'radio'];
+        const missingCategories = [];
+        const emptyCategories = [];
+
+        for (const category of requiredCategories) {
+            if (!result.extracted[category]) {
+                missingCategories.push(category);
+            } else if (result.extracted[category].length === 0) {
+                emptyCategories.push(category);
+            }
+        }
+
+        if (missingCategories.length > 0) {
+            result.validation.errors.push(
+                `Missing required categories: ${missingCategories.join(', ')}`
+            );
+        }
+
+        if (emptyCategories.length > 0) {
+            result.validation.warnings.push(
+                `Empty required categories: ${emptyCategories.join(', ')}`
+            );
+        }
+
+        // Mark as complete if all required categories have content
+        result.validation.isComplete =
+            result.extracted.briefings && result.extracted.briefings.length > 0 &&
+            result.extracted.triggers && result.extracted.triggers.length > 0 &&
+            result.extracted.radio && result.extracted.radio.length > 0;
 
         return result;
     },
@@ -320,6 +356,7 @@ const MizParser = {
 
     /**
      * Extract trigger messages
+     * Per issue #7: Only extract actual trigger messages, not rule comments
      */
     extractTriggers: function(mission, dictionary) {
         const results = [];
@@ -341,7 +378,7 @@ const MizParser = {
                     if (!action) continue;
 
                     // Look for text/message properties
-                    for (const key of ['text', 'message', 'comment', 'file']) {
+                    for (const key of ['text', 'message', 'file']) {
                         if (action[key]) {
                             const text = this.resolveText(action[key], dictionary);
                             if (text) {
@@ -356,17 +393,8 @@ const MizParser = {
                 }
             }
 
-            // Check rule comment itself
-            if (rule.comment) {
-                const text = this.resolveText(rule.comment, dictionary);
-                if (text && text.length > 2) { // Skip very short comments
-                    results.push({
-                        category: 'Trigger',
-                        context: 'Rule Comment',
-                        text: text
-                    });
-                }
-            }
+            // NOTE: Removed extraction of rule.comment itself per issue #7
+            // Rule comments are metadata, not localizable content
         }
 
         return results;
@@ -459,41 +487,79 @@ const MizParser = {
 
     /**
      * Extract radio messages
+     * Searches for radio-specific fields (not general trigger messages)
+     * Per issue #7: Radio messages should be distinct from trigger messages
      */
     extractRadioMessages: function(mission, dictionary) {
         const results = [];
+        const seenTexts = new Set(); // Prevent duplicates
 
-        // Check for radio messages in various locations
-        // This is mission-dependent, so we do a deep search
-
-        const searchRadio = (obj, path = '') => {
-            if (!obj || typeof obj !== 'object') return;
-
-            for (const [key, value] of Object.entries(obj)) {
-                const currentPath = path ? `${path}/${key}` : key;
-
-                if (key.toLowerCase().includes('radio') || key.toLowerCase().includes('message')) {
-                    if (typeof value === 'string') {
-                        const text = this.resolveText(value, dictionary);
-                        if (text) {
-                            results.push({
-                                category: 'Radio',
-                                context: currentPath,
-                                text: text
-                            });
-                        }
-                    }
-                }
-
-                if (typeof value === 'object' && !Array.isArray(value)) {
-                    searchRadio(value, currentPath);
-                }
+        // Helper to add unique radio message
+        const addRadioMessage = (text, context) => {
+            if (text && !seenTexts.has(text)) {
+                seenTexts.add(text);
+                results.push({
+                    category: 'Radio',
+                    context: context,
+                    text: text
+                });
             }
         };
 
-        if (mission) {
-            searchRadio(mission.triggers);
-            searchRadio(mission.trigrules);
+        // Search for radio-specific keys in trigrules actions
+        // Look for specific radio-related action IDs (based on DCS action types)
+        if (mission?.trigrules) {
+            const rules = Array.isArray(mission.trigrules) ? mission.trigrules : Object.values(mission.trigrules);
+
+            for (const rule of rules) {
+                if (!rule?.actions) continue;
+
+                const actions = Array.isArray(rule.actions) ? rule.actions : Object.values(rule.actions);
+
+                for (const action of actions) {
+                    if (!action) continue;
+
+                    // DCS radio actions typically have specific action IDs:
+                    // 'radioTransmission', 'transmitMessage', etc.
+                    // Check for radio-specific keys
+                    if (action.radioText || action.file ||
+                        (action.id && typeof action.id === 'string' && action.id.toLowerCase().includes('radio'))) {
+
+                        const textKey = action.radioText || action.file || action.text;
+                        if (textKey) {
+                            const text = this.resolveText(textKey, dictionary);
+                            if (text) {
+                                addRadioMessage(text, rule.comment || 'Radio Message');
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Search for radio messages in coalition groups (unit radio settings)
+        if (mission?.coalition) {
+            const coalitions = ['blue', 'red', 'neutrals'];
+
+            for (const coalition of coalitions) {
+                const coalitionData = mission.coalition[coalition];
+                if (!coalitionData) continue;
+
+                // Search through groups for radio frequency/messages
+                this.traverseGroups(coalitionData, (group, path) => {
+                    // Check for radio-related properties
+                    if (group.radio || group.frequency) {
+                        ['radioText', 'message', 'radioMessage'].forEach(key => {
+                            if (group[key]) {
+                                const text = this.resolveText(group[key], dictionary);
+                                if (text) {
+                                    addRadioMessage(text, path);
+                                }
+                            }
+                        });
+                    }
+                });
+            }
         }
 
         return results;
@@ -566,66 +632,84 @@ const MizParser = {
     },
 
     /**
-     * Format extracted data as plain text with clean prefixes per issue requirements
-     * Format: "Briefing_Blue: Clean text" or "Trigger_Message_5: Clean message"
+     * Format extracted data as plain text with clear sections per issue #7 requirements
+     * Format with sections:
+     *   БРИФИНГ: / BRIEFING:
+     *   ...
+     *
+     *   ТРИГГЕРЫ: / TRIGGERS:
+     *   ...
+     *
+     *   РАДИОСООБЩЕНИЯ: / RADIO MESSAGES:
+     *   ...
      */
     formatAsText: function(extractionResult) {
-        const lines = [];
+        const sections = [];
 
-        // Counter for sequential numbering
-        let triggerIndex = 1;
-        let radioIndex = 1;
-
-        // Process briefings with specific names
-        if (extractionResult.extracted.briefings) {
+        // BRIEFING SECTION
+        if (extractionResult.extracted.briefings && extractionResult.extracted.briefings.length > 0) {
+            const briefingLines = ['БРИФИНГ: / BRIEFING:', ''];
             for (const item of extractionResult.extracted.briefings) {
                 const prefix = this.getCleanPrefix(item.context, 'Briefing');
-                lines.push(`${prefix}: ${item.text}`);
+                briefingLines.push(`${prefix}: ${item.text}`);
             }
+            sections.push(briefingLines.join('\n'));
         }
 
-        // Process triggers with sequential numbering
-        if (extractionResult.extracted.triggers) {
+        // TRIGGERS SECTION
+        if (extractionResult.extracted.triggers && extractionResult.extracted.triggers.length > 0) {
+            const triggerLines = ['ТРИГГЕРЫ: / TRIGGERS:', ''];
+            let triggerIndex = 1;
             for (const item of extractionResult.extracted.triggers) {
-                lines.push(`Trigger_Message_${triggerIndex}: ${item.text}`);
+                triggerLines.push(`Trigger_${triggerIndex}: ${item.text}`);
                 triggerIndex++;
             }
+            sections.push(triggerLines.join('\n'));
         }
 
-        // Process radio messages with sequential numbering
-        if (extractionResult.extracted.radio) {
+        // RADIO MESSAGES SECTION
+        if (extractionResult.extracted.radio && extractionResult.extracted.radio.length > 0) {
+            const radioLines = ['РАДИОСООБЩЕНИЯ: / RADIO MESSAGES:', ''];
+            let radioIndex = 1;
             for (const item of extractionResult.extracted.radio) {
-                lines.push(`Radio_Message_${radioIndex}: ${item.text}`);
+                radioLines.push(`Radio_${radioIndex}: ${item.text}`);
                 radioIndex++;
             }
+            sections.push(radioLines.join('\n'));
         }
 
-        // Process optional categories if present
-        if (extractionResult.extracted.tasks) {
+        // OPTIONAL CATEGORIES (for manual mode)
+        if (extractionResult.extracted.tasks && extractionResult.extracted.tasks.length > 0) {
+            const taskLines = ['ЗАДАЧИ: / TASKS:', ''];
             let taskIndex = 1;
             for (const item of extractionResult.extracted.tasks) {
-                lines.push(`Task_${taskIndex}: ${item.text}`);
+                taskLines.push(`Task_${taskIndex}: ${item.text}`);
                 taskIndex++;
             }
+            sections.push(taskLines.join('\n'));
         }
 
-        if (extractionResult.extracted.units) {
+        if (extractionResult.extracted.units && extractionResult.extracted.units.length > 0) {
+            const unitLines = ['ПОДРАЗДЕЛЕНИЯ: / UNITS:', ''];
             let unitIndex = 1;
             for (const item of extractionResult.extracted.units) {
-                lines.push(`Unit_${unitIndex}: ${item.text}`);
+                unitLines.push(`Unit_${unitIndex}: ${item.text}`);
                 unitIndex++;
             }
+            sections.push(unitLines.join('\n'));
         }
 
-        if (extractionResult.extracted.waypoints) {
+        if (extractionResult.extracted.waypoints && extractionResult.extracted.waypoints.length > 0) {
+            const waypointLines = ['ПУТЕВЫЕ ТОЧКИ: / WAYPOINTS:', ''];
             let waypointIndex = 1;
             for (const item of extractionResult.extracted.waypoints) {
-                lines.push(`Waypoint_${waypointIndex}: ${item.text}`);
+                waypointLines.push(`Waypoint_${waypointIndex}: ${item.text}`);
                 waypointIndex++;
             }
+            sections.push(waypointLines.join('\n'));
         }
 
-        return lines.join('\n');
+        return sections.join('\n\n');
     },
 
     /**
@@ -672,6 +756,7 @@ const MizParser = {
 
     /**
      * Parse imported text file back to structured data
+     * Handles both old format and new sectioned format (issue #7)
      * @param {string} importedText - The modified .txt file content
      * @returns {object} Parsed import data with mappings
      */
@@ -688,9 +773,35 @@ const MizParser = {
 
         const linePattern = /^([^:]+):\s*(.*)$/;
 
+        // Track current section for sectioned format
+        let currentSection = null;
+        const sectionMap = {
+            'БРИФИНГ': 'briefings',
+            'BRIEFING': 'briefings',
+            'ТРИГГЕРЫ': 'triggers',
+            'TRIGGERS': 'triggers',
+            'РАДИОСООБЩЕНИЯ': 'radio',
+            'RADIO MESSAGES': 'radio',
+            'ЗАДАЧИ': 'tasks',
+            'TASKS': 'tasks',
+            'ПОДРАЗДЕЛЕНИЯ': 'units',
+            'UNITS': 'units',
+            'ПУТЕВЫЕ ТОЧКИ': 'waypoints',
+            'WAYPOINTS': 'waypoints'
+        };
+
         for (const line of lines) {
             const trimmedLine = line.trim();
             if (!trimmedLine) continue;
+
+            // Check if this is a section header
+            const sectionMatch = trimmedLine.match(/^([А-ЯЁA-Z\s]+):\s*(?:\/\s*([A-Z\s]+):)?$/);
+            if (sectionMatch) {
+                const sectionName = sectionMatch[1].trim();
+                const sectionNameEn = sectionMatch[2]?.trim();
+                currentSection = sectionMap[sectionName] || sectionMap[sectionNameEn] || null;
+                continue;
+            }
 
             const match = trimmedLine.match(linePattern);
             if (!match) continue;
@@ -712,12 +823,12 @@ const MizParser = {
             } else if (prefix.startsWith('Briefing_Neutral')) {
                 mappings.briefings.descriptionNeutralsTask = cleanText;
             }
-            // Map triggers
-            else if (prefix.startsWith('Trigger_Message_')) {
+            // Map triggers (both old and new format)
+            else if (prefix.startsWith('Trigger_Message_') || prefix.startsWith('Trigger_')) {
                 mappings.triggers.push(cleanText);
             }
-            // Map radio
-            else if (prefix.startsWith('Radio_Message_')) {
+            // Map radio (both old and new format)
+            else if (prefix.startsWith('Radio_Message_') || prefix.startsWith('Radio_')) {
                 mappings.radio.push(cleanText);
             }
             // Map optional categories
