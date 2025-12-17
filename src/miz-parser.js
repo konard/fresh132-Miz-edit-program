@@ -113,6 +113,9 @@ const MizParser = {
 
     /**
      * Extract localizable text from parsed mission data
+     * NEW APPROACH (issue #15): Extract ONLY from dictionary.lua
+     * Focus on DictKey_subtitle_*, DictKey_ActionRadioText_*, and optionally DictKey_ActionText_*
+     *
      * @param {object} parsedData - Data from parse()
      * @param {object} options - Extraction options
      * @returns {object} Extracted text organized by category
@@ -121,12 +124,16 @@ const MizParser = {
         const {
             mode = 'auto',
             categories = [],
-            preferredLocale = 'DEFAULT'
+            preferredLocale = 'DEFAULT',
+            includeActionText = false // Optional: extract long ActionText entries
         } = options;
 
         const result = {
             locale: preferredLocale,
-            extracted: {},
+            extracted: {
+                radio: [],     // DictKey_subtitle_* - radio messages and subtitles
+                menu: []       // DictKey_ActionRadioText_* - F10 menu items
+            },
             stats: {
                 totalStrings: 0,
                 uniqueStrings: 0,
@@ -139,96 +146,91 @@ const MizParser = {
             }
         };
 
-        // Select the dictionary to use
-        let dictionary = parsedData.dictionaries[preferredLocale];
-        if (!dictionary && preferredLocale !== 'DEFAULT') {
-            dictionary = parsedData.dictionaries['DEFAULT'];
-            result.locale = 'DEFAULT';
-        }
+        // Select the dictionary to use - ALWAYS prefer DEFAULT
+        let dictionary = parsedData.dictionaries['DEFAULT'];
+        result.locale = 'DEFAULT';
+
         if (!dictionary) {
-            // Use first available dictionary
+            // Fallback: use first available dictionary
             const firstLocale = parsedData.availableLocales[0];
             if (firstLocale) {
                 dictionary = parsedData.dictionaries[firstLocale];
                 result.locale = firstLocale;
+                result.validation.warnings.push('DEFAULT locale not found, using ' + firstLocale);
+            } else {
+                result.validation.errors.push('No dictionary found in mission file');
+                return result;
             }
         }
 
-        // In auto mode, only extract focused categories (briefings, triggers, radio)
-        // Ignore units, waypoints, tasks per issue requirements
-        const focusedCategories = ['briefings', 'triggers', 'radio'];
-        const categoriesToExtract = mode === 'auto' ? focusedCategories : categories;
+        // Extract from dictionary ONLY - no mission file parsing!
+        // Per issue #15: Modern missions (2023-2025) use ONLY dictionary.lua
 
-        // Extract text by category
-        if (categoriesToExtract.includes('briefings')) {
-            result.extracted.briefings = this.extractBriefings(parsedData.mission, dictionary);
-            result.stats.byCategory.briefings = result.extracted.briefings.length;
+        for (const [key, value] of Object.entries(dictionary)) {
+            if (!key || !value || typeof value !== 'string') continue;
+
+            const cleanedText = this.cleanText(value);
+            if (!cleanedText) continue;
+
+            // Radio messages and subtitles: DictKey_subtitle_* (modern)
+            // Also include legacy keys like RadioCall, MissionStart, etc. as fallback
+            if (key.includes('subtitle') ||
+                key.includes('Radio') ||
+                key.includes('Mission') ||
+                key.includes('Warning') ||
+                key.includes('Objective')) {
+                result.extracted.radio.push({
+                    category: 'Radio',
+                    context: key,
+                    text: cleanedText
+                });
+            }
+            // F10 menu items: DictKey_ActionRadioText_* (modern)
+            else if (key.includes('ActionRadioText')) {
+                result.extracted.menu.push({
+                    category: 'Menu',
+                    context: key,
+                    text: cleanedText
+                });
+            }
+            // Optional: Long trigger instructions: DictKey_ActionText_*
+            // Also include Briefing keys as fallback
+            else if ((includeActionText && key.includes('ActionText') && cleanedText.length > 10) ||
+                     key.includes('Briefing')) {
+                if (!result.extracted.triggers) {
+                    result.extracted.triggers = [];
+                }
+                result.extracted.triggers.push({
+                    category: 'Trigger',
+                    context: key,
+                    text: cleanedText
+                });
+            }
         }
 
-        if (categoriesToExtract.includes('triggers')) {
-            result.extracted.triggers = this.extractTriggers(parsedData.mission, dictionary);
+        // Calculate statistics
+        result.stats.byCategory.radio = result.extracted.radio.length;
+        result.stats.byCategory.menu = result.extracted.menu.length;
+        if (result.extracted.triggers) {
             result.stats.byCategory.triggers = result.extracted.triggers.length;
         }
 
-        if (categoriesToExtract.includes('radio')) {
-            result.extracted.radio = this.extractRadioMessages(parsedData.mission, dictionary);
-            result.stats.byCategory.radio = result.extracted.radio.length;
-        }
-
-        // Optional categories for manual mode only
-        if (categoriesToExtract.includes('tasks')) {
-            result.extracted.tasks = this.extractTasks(parsedData.mission, dictionary);
-            result.stats.byCategory.tasks = result.extracted.tasks.length;
-        }
-
-        if (categoriesToExtract.includes('units')) {
-            result.extracted.units = this.extractUnits(parsedData.mission, dictionary);
-            result.stats.byCategory.units = result.extracted.units.length;
-        }
-
-        if (categoriesToExtract.includes('waypoints')) {
-            result.extracted.waypoints = this.extractWaypoints(parsedData.mission, dictionary);
-            result.stats.byCategory.waypoints = result.extracted.waypoints.length;
-        }
-
-        // Calculate totals
-        const allStrings = [];
-        for (const category of Object.keys(result.extracted)) {
-            allStrings.push(...result.extracted[category]);
-        }
+        const allStrings = [
+            ...result.extracted.radio,
+            ...result.extracted.menu,
+            ...(result.extracted.triggers || [])
+        ];
         result.stats.totalStrings = allStrings.length;
         result.stats.uniqueStrings = new Set(allStrings.map(s => s.text)).size;
 
-        // Validation per issue #7: Check for required categories
-        const requiredCategories = ['briefings', 'triggers', 'radio'];
-        const missingCategories = [];
-        const emptyCategories = [];
-
-        for (const category of requiredCategories) {
-            if (!result.extracted[category]) {
-                missingCategories.push(category);
-            } else if (result.extracted[category].length === 0) {
-                emptyCategories.push(category);
-            }
-        }
-
-        if (missingCategories.length > 0) {
-            result.validation.errors.push(
-                `Missing required categories: ${missingCategories.join(', ')}`
-            );
-        }
-
-        if (emptyCategories.length > 0) {
+        // Validation: Check if we found any content
+        if (result.extracted.radio.length === 0 && result.extracted.menu.length === 0) {
             result.validation.warnings.push(
-                `Empty required categories: ${emptyCategories.join(', ')}`
+                'No subtitle or menu items found. This mission may use old-style formatting.'
             );
         }
 
-        // Mark as complete if all required categories have content
-        result.validation.isComplete =
-            result.extracted.briefings && result.extracted.briefings.length > 0 &&
-            result.extracted.triggers && result.extracted.triggers.length > 0 &&
-            result.extracted.radio && result.extracted.radio.length > 0;
+        result.validation.isComplete = result.stats.totalStrings > 0;
 
         return result;
     },
@@ -296,7 +298,8 @@ const MizParser = {
     },
 
     /**
-     * Extract briefing texts
+     * DEPRECATED: Extract briefing texts
+     * This method is no longer used per issue #15 - kept for backwards compatibility
      */
     extractBriefings: function(mission, dictionary) {
         const results = [];
@@ -322,7 +325,8 @@ const MizParser = {
     },
 
     /**
-     * Extract task descriptions
+     * DEPRECATED: Extract task descriptions
+     * This method is no longer used per issue #15 - kept for backwards compatibility
      */
     extractTasks: function(mission, dictionary) {
         const results = [];
@@ -355,7 +359,8 @@ const MizParser = {
     },
 
     /**
-     * Extract trigger messages
+     * DEPRECATED: Extract trigger messages
+     * This method is no longer used per issue #15 - kept for backwards compatibility
      * Per issue #7: Only extract actual trigger messages, not rule comments
      * Per issue #9: Skip radio-specific actions to avoid duplicates
      */
@@ -412,7 +417,8 @@ const MizParser = {
     },
 
     /**
-     * Extract unit names
+     * DEPRECATED: Extract unit names
+     * This method is no longer used per issue #15 - kept for backwards compatibility
      */
     extractUnits: function(mission, dictionary) {
         const results = [];
@@ -445,7 +451,8 @@ const MizParser = {
     },
 
     /**
-     * Extract waypoint information
+     * DEPRECATED: Extract waypoint information
+     * This method is no longer used per issue #15 - kept for backwards compatibility
      */
     extractWaypoints: function(mission, dictionary) {
         const results = [];
@@ -497,7 +504,8 @@ const MizParser = {
     },
 
     /**
-     * Extract radio messages
+     * DEPRECATED: Extract radio messages
+     * This method is no longer used per issue #15 - kept for backwards compatibility
      * Searches for radio-specific fields (not general trigger messages)
      * Per issue #7: Radio messages should be distinct from trigger messages
      */
@@ -643,42 +651,17 @@ const MizParser = {
     },
 
     /**
-     * Format extracted data as plain text with clear sections per issue #7 requirements
-     * Format with sections:
-     *   БРИФИНГ: / BRIEFING:
-     *   ...
-     *
-     *   ТРИГГЕРЫ: / TRIGGERS:
-     *   ...
-     *
+     * Format extracted data as plain text per issue #15 requirements
+     * NEW FORMAT:
      *   РАДИОСООБЩЕНИЯ: / RADIO MESSAGES:
+     *   Radio_1: PLAYER: FL070, Sword 2-1.
+     *   Radio_2: POPEYE: Ok Sword 2-1 we're cleared in...
      *   ...
      */
     formatAsText: function(extractionResult) {
         const sections = [];
 
-        // BRIEFING SECTION
-        if (extractionResult.extracted.briefings && extractionResult.extracted.briefings.length > 0) {
-            const briefingLines = ['БРИФИНГ: / BRIEFING:', ''];
-            for (const item of extractionResult.extracted.briefings) {
-                const prefix = this.getCleanPrefix(item.context, 'Briefing');
-                briefingLines.push(`${prefix}: ${item.text}`);
-            }
-            sections.push(briefingLines.join('\n'));
-        }
-
-        // TRIGGERS SECTION
-        if (extractionResult.extracted.triggers && extractionResult.extracted.triggers.length > 0) {
-            const triggerLines = ['ТРИГГЕРЫ: / TRIGGERS:', ''];
-            let triggerIndex = 1;
-            for (const item of extractionResult.extracted.triggers) {
-                triggerLines.push(`Trigger_${triggerIndex}: ${item.text}`);
-                triggerIndex++;
-            }
-            sections.push(triggerLines.join('\n'));
-        }
-
-        // RADIO MESSAGES SECTION
+        // RADIO MESSAGES SECTION (DictKey_subtitle_*)
         if (extractionResult.extracted.radio && extractionResult.extracted.radio.length > 0) {
             const radioLines = ['РАДИОСООБЩЕНИЯ: / RADIO MESSAGES:', ''];
             let radioIndex = 1;
@@ -689,35 +672,26 @@ const MizParser = {
             sections.push(radioLines.join('\n'));
         }
 
-        // OPTIONAL CATEGORIES (for manual mode)
-        if (extractionResult.extracted.tasks && extractionResult.extracted.tasks.length > 0) {
-            const taskLines = ['ЗАДАЧИ: / TASKS:', ''];
-            let taskIndex = 1;
-            for (const item of extractionResult.extracted.tasks) {
-                taskLines.push(`Task_${taskIndex}: ${item.text}`);
-                taskIndex++;
+        // F10 MENU SECTION (DictKey_ActionRadioText_*)
+        if (extractionResult.extracted.menu && extractionResult.extracted.menu.length > 0) {
+            const menuLines = ['МЕНЮ F10: / F10 MENU:', ''];
+            let menuIndex = 1;
+            for (const item of extractionResult.extracted.menu) {
+                menuLines.push(`Menu_${menuIndex}: ${item.text}`);
+                menuIndex++;
             }
-            sections.push(taskLines.join('\n'));
+            sections.push(menuLines.join('\n'));
         }
 
-        if (extractionResult.extracted.units && extractionResult.extracted.units.length > 0) {
-            const unitLines = ['ПОДРАЗДЕЛЕНИЯ: / UNITS:', ''];
-            let unitIndex = 1;
-            for (const item of extractionResult.extracted.units) {
-                unitLines.push(`Unit_${unitIndex}: ${item.text}`);
-                unitIndex++;
+        // OPTIONAL TRIGGERS SECTION (DictKey_ActionText_* with length > 10)
+        if (extractionResult.extracted.triggers && extractionResult.extracted.triggers.length > 0) {
+            const triggerLines = ['ИНСТРУКЦИИ ТРИГГЕРОВ: / TRIGGER INSTRUCTIONS:', ''];
+            let triggerIndex = 1;
+            for (const item of extractionResult.extracted.triggers) {
+                triggerLines.push(`Trigger_${triggerIndex}: ${item.text}`);
+                triggerIndex++;
             }
-            sections.push(unitLines.join('\n'));
-        }
-
-        if (extractionResult.extracted.waypoints && extractionResult.extracted.waypoints.length > 0) {
-            const waypointLines = ['ПУТЕВЫЕ ТОЧКИ: / WAYPOINTS:', ''];
-            let waypointIndex = 1;
-            for (const item of extractionResult.extracted.waypoints) {
-                waypointLines.push(`Waypoint_${waypointIndex}: ${item.text}`);
-                waypointIndex++;
-            }
-            sections.push(waypointLines.join('\n'));
+            sections.push(triggerLines.join('\n'));
         }
 
         return sections.join('\n\n');

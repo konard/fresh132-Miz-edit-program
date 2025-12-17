@@ -1,0 +1,23 @@
+РАДИОСООБЩЕНИЯ: / RADIO MESSAGES:
+
+Radio_1: PLAYER: FL070, Sword 2-1.
+Radio_2: POPEYE: Ok Sword 2-1 we're cleared in hot. Target is the SA-6 site, 2 o'clock, 8 miles.
+Radio_3: Contact RAPCON Arrival on button 4.
+Radio_4: AWACS: Sword 2-1, picture clean. You are cleared to engage.
+Radio_5: PLAYER: Copy, engaging now.
+Radio_6: Welcome to the training mission. All pilots report to your assigned aircraft.
+Radio_7: Excellent work! Mission complete. RTB for debrief.
+
+МЕНЮ F10: / F10 MENU:
+
+Menu_1: Request Tanker
+Menu_2: Request AWACS Support
+Menu_3: Report Mission Status
+Menu_4: Abort Mission
+Menu_5: Request Weather Update
+
+ИНСТРУКЦИИ ТРИГГЕРОВ: / TRIGGER INSTRUCTIONS:
+
+Trigger_1: Your mission is to destroy the enemy SAM site located at grid 38T FL 12345 67890. Approach from the west to avoid radar detection. Use AGM-88 HARM missiles for initial suppression, then follow up with precision-guided munitions.
+Trigger_2: Warning: Multiple hostile aircraft detected in your vicinity. Recommend immediate evasive action and weapon release authorization.
+Trigger_3: Proceed to waypoint ALPHA, then turn to heading 270 and maintain altitude 15000 feet.
