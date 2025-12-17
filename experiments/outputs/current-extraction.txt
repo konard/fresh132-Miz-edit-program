@@ -1,0 +1,13 @@
+БРИФИНГ: / BRIEFING:
+
+Briefing_Mission: Sample Training Mission
+Briefing_Description: This is a sample DCS World mission created for testing the Miz Editor application. The mission demonstrates text extraction capabilities.
+Briefing_Blue: Blue coalition objective: Complete all training exercises and return to base safely.
+Briefing_Red: Red coalition objective: Defend assigned airspace from enemy incursions.
+Briefing_Neutral: Neutral forces: Observe and report only.
+
+ТРИГГЕРЫ: / TRIGGERS:
+
+Trigger_1: Welcome to the training mission. All pilots report to your assigned aircraft.
+Trigger_2: Excellent work! All objectives have been completed. Return to base.
+Trigger_3: Warning: Enemy aircraft detected. All fighters scramble immediately.

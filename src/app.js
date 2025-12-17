@@ -295,9 +295,24 @@
         // Update preview
         elements.outputPreview.value = output;
 
-        // Update stats
-        elements.extractionStats.textContent =
-            `${extractionResult.stats.totalStrings} strings (${extractionResult.stats.uniqueStrings} unique)`;
+        // Update stats with validation info
+        let statsText = `${extractionResult.stats.totalStrings} strings (${extractionResult.stats.uniqueStrings} unique)`;
+
+        // Show validation warnings/errors per issue #7
+        if (extractionResult.validation) {
+            if (!extractionResult.validation.isComplete) {
+                if (extractionResult.validation.errors.length > 0) {
+                    statsText += `\n⚠️ Errors: ${extractionResult.validation.errors.join(', ')}`;
+                }
+                if (extractionResult.validation.warnings.length > 0) {
+                    statsText += `\n⚠️ Warnings: ${extractionResult.validation.warnings.join(', ')}`;
+                }
+            } else {
+                statsText += '\n✅ Complete extraction (briefings, triggers, and radio messages)';
+            }
+        }
+
+        elements.extractionStats.textContent = statsText;
 
         // Show results section
         elements.resultsSection.classList.remove('d-none');
