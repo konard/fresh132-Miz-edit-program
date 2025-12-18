@@ -1469,4 +1469,6 @@ const MizParser = {
 // Export for both browser and Node.js
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = MizParser;
+} else if (typeof window !== 'undefined') {
+    window.MizParser = MizParser;
 }
