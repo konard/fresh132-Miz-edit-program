@@ -386,4 +386,6 @@ const LuaParser = {
 // Export for both browser and Node.js
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = LuaParser;
+} else if (typeof window !== 'undefined') {
+    window.LuaParser = LuaParser;
 }
