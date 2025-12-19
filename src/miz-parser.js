@@ -274,19 +274,31 @@ var MizParser = {
 
     /**
      * Resolve a DictKey reference to actual text
+     * @param {string} value - The value to resolve (might be DictKey or plain text)
+     * @param {object} dictionary - The dictionary to look up DictKeys
+     * @param {boolean} returnWithKey - If true, returns {text, dictKey} object; if false, returns just text
+     * @returns {string|object|null} Resolved text, or {text, dictKey} if returnWithKey is true
      */
-    resolveText: function(value, dictionary) {
+    resolveText: function(value, dictionary, returnWithKey = false) {
         if (!value) return null;
 
         // Check if it's a DictKey reference
         if (typeof value === 'string') {
             if (value.startsWith('DictKey_')) {
                 if (dictionary && dictionary[value]) {
-                    return this.cleanText(dictionary[value]);
+                    const text = this.cleanText(dictionary[value]);
+                    if (returnWithKey) {
+                        return { text: text, dictKey: value };
+                    }
+                    return text;
                 }
                 return null;
             }
-            return this.cleanText(value);
+            const text = this.cleanText(value);
+            if (returnWithKey) {
+                return { text: text, dictKey: null };
+            }
+            return text;
         }
 
         return null;
@@ -373,12 +385,12 @@ var MizParser = {
 
         for (const key of briefingKeys) {
             if (mission[key]) {
-                const text = this.resolveText(mission[key], dictionary);
-                if (text) {
+                const resolved = this.resolveText(mission[key], dictionary, true);
+                if (resolved && resolved.text) {
                     results.push({
                         category: 'Briefing',
-                        context: this.formatContextName(key),
-                        text: text
+                        context: resolved.dictKey || this.formatContextName(key),
+                        text: resolved.text
                     });
                 }
             }
@@ -405,12 +417,12 @@ var MizParser = {
             // Look through countries and groups
             this.traverseGroups(coalitionData, (group, path) => {
                 if (group.task) {
-                    const text = this.resolveText(group.task, dictionary);
-                    if (text) {
+                    const resolved = this.resolveText(group.task, dictionary, true);
+                    if (resolved && resolved.text) {
                         results.push({
                             category: 'Task',
-                            context: `${coalition}/${path}`,
-                            text: text
+                            context: resolved.dictKey || `${coalition}/${path}`,
+                            text: resolved.text
                         });
                     }
                 }
@@ -504,9 +516,11 @@ var MizParser = {
                         // Look for text/message properties
                         for (const key of ['text', 'message']) {
                             if (action[key]) {
-                                const text = this.resolveText(action[key], dictionary);
-                                if (text) {
-                                    addUnique(text, rule.comment || 'Trigger Message');
+                                const resolved = this.resolveText(action[key], dictionary, true);
+                                if (resolved && resolved.text) {
+                                    // Use DictKey as context if available, otherwise use human-readable name
+                                    const context = resolved.dictKey || (rule.comment || 'Trigger Message');
+                                    addUnique(resolved.text, context);
                                 }
                             }
                         }
@@ -545,13 +559,13 @@ var MizParser = {
 
             this.traverseUnits(coalitionData, (unit, path) => {
                 if (unit.name) {
-                    const text = this.resolveText(unit.name, dictionary);
-                    if (text && !seenNames.has(text)) {
-                        seenNames.add(text);
+                    const resolved = this.resolveText(unit.name, dictionary, true);
+                    if (resolved && resolved.text && !seenNames.has(resolved.text)) {
+                        seenNames.add(resolved.text);
                         results.push({
                             category: 'Unit',
-                            context: `${coalition}/${path}`,
-                            text: text
+                            context: resolved.dictKey || `${coalition}/${path}`,
+                            text: resolved.text
                         });
                     }
                 }
@@ -585,23 +599,23 @@ var MizParser = {
                         if (!point) return;
 
                         if (point.name) {
-                            const text = this.resolveText(point.name, dictionary);
-                            if (text) {
+                            const resolved = this.resolveText(point.name, dictionary, true);
+                            if (resolved && resolved.text) {
                                 results.push({
                                     category: 'Waypoint',
-                                    context: `${path}/WP${index + 1}`,
-                                    text: text
+                                    context: resolved.dictKey || `${path}/WP${index + 1}`,
+                                    text: resolved.text
                                 });
                             }
                         }
 
                         if (point.comment) {
-                            const text = this.resolveText(point.comment, dictionary);
-                            if (text) {
+                            const resolved = this.resolveText(point.comment, dictionary, true);
+                            if (resolved && resolved.text) {
                                 results.push({
                                     category: 'Waypoint',
-                                    context: `${path}/WP${index + 1} Comment`,
-                                    text: text
+                                    context: resolved.dictKey || `${path}/WP${index + 1} Comment`,
+                                    text: resolved.text
                                 });
                             }
                         }
@@ -716,9 +730,11 @@ var MizParser = {
 
                         const textKey = action.radioText || action.file || action.text;
                         if (textKey) {
-                            const text = this.resolveText(textKey, dictionary);
-                            if (text) {
-                                addUnique(text, rule.comment || 'Radio Message');
+                            const resolved = this.resolveText(textKey, dictionary, true);
+                            if (resolved && resolved.text) {
+                                // Use DictKey as context if available, otherwise use human-readable name
+                                const context = resolved.dictKey || (rule.comment || 'Radio Message');
+                                addUnique(resolved.text, context);
                             }
                         }
                     }
@@ -738,9 +754,11 @@ var MizParser = {
                     if (group.radio || group.frequency) {
                         ['radioText', 'message', 'radioMessage'].forEach(key => {
                             if (group[key]) {
-                                const text = this.resolveText(group[key], dictionary);
-                                if (text) {
-                                    addUnique(text, path);
+                                const resolved = this.resolveText(group[key], dictionary, true);
+                                if (resolved && resolved.text) {
+                                    // Use DictKey as context if available, otherwise use path
+                                    const context = resolved.dictKey || path;
+                                    addUnique(resolved.text, context);
                                 }
                             }
                         });
